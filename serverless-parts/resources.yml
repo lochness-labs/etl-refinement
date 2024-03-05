@@ -1,0 +1,54 @@
+Resources:
+
+  ProcessErrorStateSNS:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: ${self:custom.sns_topic_name}
+      TopicName: ${self:custom.sns_topic_name}
+
+  ProcessErrorStateSNSSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: ${self:custom.sns_subscription_recipient}
+      Protocol: email
+      TopicArn:
+        Ref: ProcessErrorStateSNS
+
+  EventBridgeDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: ${self:provider.stage}_${self:service}_dlq
+      DelaySeconds: 0
+      MaximumMessageSize: 262144
+      MessageRetentionPeriod: 172800
+      ReceiveMessageWaitTimeSeconds: 20
+      VisibilityTimeout:  1200
+
+  # IAM role of the step function
+  StateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ${self:service}-${self:provider.stage}-role
+      Path: /state_machine_roles/
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - states.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: ${self:service}-${self:provider.stage}-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                  - athena:*
+                  - glue:*
+                  - sns:Publish
+                  - s3:*
+                Resource:
+                  - "*"

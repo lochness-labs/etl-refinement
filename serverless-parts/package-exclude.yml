@@ -1,0 +1,9 @@
+- node_modules/**
+- venv/**
+- .vscode/**
+- .git/**
+- layers/**
+- README.md
+- Dockerfile
+- docker-compose.yml
+- requirements.txt

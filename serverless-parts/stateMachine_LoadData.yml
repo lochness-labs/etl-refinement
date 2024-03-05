@@ -1,0 +1,65 @@
+StartAt: LoadData
+States:
+
+  LoadData:
+    Type: Task
+    Resource:
+      Fn::GetAtt: [LoadDataLambdaFunction, Arn]
+    Next: ExecuteQuerySqlLoader
+
+  ExecuteQuerySqlLoader:
+    Type: Map
+    ItemsPath: $.payload
+    ResultPath: $.responses
+    MaxConcurrency: 1 # MUST BE 1 to preserve dependencies
+    Iterator:
+      StartAt: SqlLoader
+      States:
+        SqlLoader:
+          Type: Task
+          Resource:
+            Fn::GetAtt: [SqlLoaderLambdaFunction, Arn]
+          Next: ExecuteQuery
+
+        ExecuteQuery:
+          Type: Task
+          Resource: arn:aws:states:::athena:startQueryExecution.sync
+          ResultPath: $.executeQuery
+          Parameters:
+            QueryExecutionContext:
+              Database: ${self:custom.athena_target_db}
+            QueryString.$: $.query
+            ResultConfiguration:
+              OutputLocation: s3://${self:custom.athena_result_bucket_name}/${self:service}/load-data/
+          Retry:
+            - ErrorEquals:
+                - States.ALL
+              IntervalSeconds: 60
+              MaxAttempts: 2
+              BackoffRate: 2
+          Catch:
+            - ErrorEquals:
+                - States.ALL
+              Next: SendErrorsToSNS
+          Next: ExecutionSucceded
+
+        SendErrorsToSNS:
+          Type: Task
+          Resource: arn:aws:states:::sns:publish
+          Catch:
+            - ErrorEquals: ["States.ALL"]
+              Next: ExecutionFailed
+          Parameters:
+            TopicArn: {"Ref": "ProcessErrorStateSNS"}
+            Subject: "[${self:provider.stage}] ${self:custom.sns_error_subject} - Load Data"
+            Message:
+              Input.$: $
+          Next: ExecutionFailed
+
+        ExecutionSucceded:
+          Type: Succeed
+
+        ExecutionFailed:
+          Type: Fail
+
+    End: true

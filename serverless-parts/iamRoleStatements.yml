@@ -1,0 +1,13 @@
+- Effect: Allow
+  Action:
+    - lambda:InvokeFunction
+    - athena:*
+    - s3:*
+    - sns:*
+    - sqs:*
+    - glue:*
+    - states:StartExecution
+    - logs:*
+    - kms:*
+  Resource:
+    - "*"

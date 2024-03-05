@@ -1,0 +1,100 @@
+service: etl-refinement
+
+package:
+  exclude:
+    ${file(./serverless-parts/package-exclude.yml)}
+
+plugins:
+  - serverless-step-functions
+  - serverless-python-requirements
+
+provider:
+  name: aws
+  runtime: python3.11
+  stage: ${opt:stage, 'dev'}
+  deploymentBucket: ${file(./env/conf-${self:provider.stage}.yml):deploymentBucket}
+  region: ${self:custom.aws_region}
+  timeout: 900
+  logRetentionInDays: 30 # Set the default RetentionInDays for a CloudWatch LogGroup
+  stackTags:
+    PROJECT: ETLREFINEMENT
+    ENVIRONMENT: ${self:custom.environment}
+
+  iamRoleStatements:
+    ${file(./serverless-parts/iamRoleStatements.yml)}
+
+  environment:
+    aws_s3_data_lake: ${self:custom.aws_s3_data_lake}
+    s3_data_path: ${self:custom.s3_data_path}
+
+    athena_target_db: ${self:custom.athena_target_db}
+    athena_raw_db: ${self:custom.athena_raw_db}
+    athena_result_bucket: ${self:custom.athena_result_bucket}
+    athena_result_bucket_name: ${self:custom.athena_result_bucket_name}
+
+
+custom:
+  environment: ${opt:stage, 'dev'}
+  region: ${file(./env/conf-${self:provider.stage}.yml):aws_region}
+
+  cron_enabled: ${file(./env/conf-${self:provider.stage}.yml):cron_enabled}
+
+  sns_topic_name: ${self:service}-${self:provider.stage}-EtlRefinementSNS
+  sns_subscription_recipient: ${file(./env/conf-${self:provider.stage}.yml):sns_subscription_recipient}
+  sns_error_subject: ${file(./env/conf-${self:provider.stage}.yml):sns_error_subject}
+
+  athena_target_db: ${file(./env/conf-${self:provider.stage}.yml):athena_target_db}
+  athena_raw_db: ${file(./env/conf-${self:provider.stage}.yml):athena_raw_db}
+  athena_result_bucket: ${file(./env/conf-${self:provider.stage}.yml):athena_result_bucket}
+  athena_result_bucket_name: ${file(./env/conf-${self:provider.stage}.yml):athena_result_bucket_name}
+
+  aws_s3_data_lake: ${file(./env/conf-${self:provider.stage}.yml):aws_s3_data_lake}
+  s3_data_path: ${file(./env/conf-${self:provider.stage}.yml):s3_data_path}
+
+functions:
+
+  CreateTablesLambdaFunction:
+    handler: src/create_tables.handler
+    maximumRetryAttempts: 0 # DO NOT REPROCESS THE SAME INPUT
+    memorySize: 512
+    timeout: 900
+
+  LoadDataLambdaFunction:
+    handler: src/load_data.handler
+    maximumRetryAttempts: 0 # DO NOT REPROCESS THE SAME INPUT
+    memorySize: 512
+    timeout: 900
+
+  SqlLoaderLambdaFunction:
+    handler: src/sql_loader.handler
+    maximumRetryAttempts: 0 # DO NOT REPROCESS THE SAME INPUT
+    memorySize: 512
+    timeout: 900
+
+stepFunctions:
+  stateMachines:
+
+    CreateTables:
+      name: ${self:service}-${self:provider.stage}-CreateTables
+      role:
+        Fn::GetAtt: ["StateMachineRole", "Arn"]
+      definition:
+        ${file(./serverless-parts/stateMachine_CreateTables.yml)}
+      # events:
+      #   - schedule:
+      #       rate: cron(0 5 * * ? *)
+      #       enabled: ${self:custom.cron_enabled}
+
+    LoadData:
+      name: ${self:service}-${self:provider.stage}-LoadData
+      role:
+        Fn::GetAtt: ["StateMachineRole", "Arn"]
+      events:
+        - schedule:
+            rate: cron(0 8 * * ? *)
+            enabled: ${self:custom.cron_enabled}
+      definition:
+        ${file(./serverless-parts/stateMachine_LoadData.yml)}
+
+resources:
+  ${file(./serverless-parts/resources.yml)}
